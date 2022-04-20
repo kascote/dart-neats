@@ -154,6 +154,21 @@ final _alwaysAllowedAttributes = <String>{
   'itemprop',
 };
 
+final _disallowedTagContents = <String>{
+  'IFRAME',
+  'MATH',
+  'NOEMBED',
+  'NOFRAMES',
+  'NOSCRIPT',
+  'PLAINTEXT',
+  'SCRIPT',
+  'STYLE',
+  'SVG',
+  'XMP',
+};
+
+final _defaultWrapperTag = 'div';
+
 bool _alwaysAllowed(String _) => true;
 
 bool _validLink(String url) {
@@ -259,9 +274,12 @@ class SaneHtmlValidator {
 
   /// Callback function to check for allowed attributes
   final AllowAttributeCB? allowAttribute;
+  final AllowTagCB? removeContentTag;
+  final bool removeContents;
 
   late AllowTagCB _allowTagFn;
   late AllowAttributeCB _allowAttributeFn;
+  late AllowTagCB _removeContentTagFn;
 
   SaneHtmlValidator({
     required this.allowElementId,
@@ -269,9 +287,12 @@ class SaneHtmlValidator {
     required this.addLinkRel,
     required this.allowTag,
     required this.allowAttribute,
+    required this.removeContentTag,
+    this.removeContents = true,
   }) {
     _allowTagFn = allowTag ?? _defaultAllowedElements;
     _allowAttributeFn = allowAttribute ?? _defaultAllowedAttributes;
+    _removeContentTagFn = removeContentTag ?? _defaultDisallowedElements;
   }
 
   String sanitize(String htmlString) {
@@ -282,6 +303,8 @@ class SaneHtmlValidator {
 
   bool _defaultAllowedElements(String tagName) =>
       _allowedElements.contains(tagName);
+  bool _defaultDisallowedElements(String tagName) =>
+      _disallowedTagContents.contains(tagName);
 
   AllowAttributeResponse _defaultAllowedAttributes(
       String tagName, String attrName, String attrValue) {
@@ -304,12 +327,33 @@ class SaneHtmlValidator {
         : AllowAttributeResponse.remove();
   }
 
-  void _sanitize(Node node) {
+  Node? _sanitize(Node node) {
+    if (node.hasChildNodes()) {
+      // doing it in reverse order, because we could otherwise skip one, when a
+      // node is removed...
+      for (var i = node.nodes.length - 1; i >= 0; i--) {
+        final newNode = _sanitize(node.nodes[i]);
+        if (newNode != null) node.nodes[i] = newNode;
+      }
+      return _sanitizeInner(node);
+    }
+    return _sanitizeInner(node);
+  }
+
+  Node? _sanitizeInner(Node node) {
     if (node is Element) {
       final tagName = node.localName!.toUpperCase();
       if (!_allowTagFn(tagName)) {
-        node.remove();
-        return;
+        if (removeContents || _removeContentTagFn(tagName)) {
+          node.remove();
+          return null;
+        } else {
+          if (node.children.isEmpty) return Text(node.text);
+
+          final t = Element.tag(_defaultWrapperTag);
+          node.reparentChildren(t);
+          return t;
+        }
       }
       node.attributes.removeWhere((k, v) {
         final attrName = k.toString();
@@ -337,13 +381,7 @@ class SaneHtmlValidator {
         }
       }
     }
-    if (node.hasChildNodes()) {
-      // doing it in reverse order, because we could otherwise skip one, when a
-      // node is removed...
-      for (var i = node.nodes.length - 1; i >= 0; i--) {
-        _sanitize(node.nodes[i]);
-      }
-    }
+    return node;
   }
 
   bool _isAttributeAllowed(String tagName, String attrName, String value) {

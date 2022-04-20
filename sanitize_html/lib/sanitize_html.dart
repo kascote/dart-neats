@@ -81,6 +81,8 @@ String sanitizeHtml(
   Iterable<String>? Function(String)? addLinkRel,
   AllowTagCB? allowTag,
   AllowAttributeCB? allowAttribute,
+  AllowTagCB? removeContentTag,
+  bool removeContents = true,
 }) {
   return SaneHtmlValidator(
     allowElementId: allowElementId,
@@ -88,5 +90,7 @@ String sanitizeHtml(
     addLinkRel: addLinkRel,
     allowTag: allowTag,
     allowAttribute: allowAttribute,
+    removeContentTag: removeContentTag,
+    removeContents: removeContents,
   ).sanitize(htmlString);
 }
