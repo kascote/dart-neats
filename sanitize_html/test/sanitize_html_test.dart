@@ -16,8 +16,10 @@ import 'package:test/test.dart';
 import 'package:sanitize_html/sanitize_html.dart'
     show sanitizeHtml, AllowTagCB, AllowAttributeCB, AllowAttributeResponse;
 
-final otherTagList = <String>{'CSTM', 'A'};
+final otherTagList = <String>{'CSTM', 'A', 'IFRAME'};
+final _removeContentTagList = <String>{'CUSTOM'};
 bool customTagList(String t) => otherTagList.contains(t);
+bool removeContentTagList(String t) => _removeContentTagList.contains(t);
 AllowAttributeResponse customAttrList(
     String tag, String attrName, String attrValue) {
   if (attrName.toUpperCase() == 'CLASS') {
@@ -48,12 +50,16 @@ void main() {
     required bool withOptionalConfiguration,
     AllowTagCB? withCustomTagList,
     AllowAttributeCB? withCustomAttrList,
+    AllowTagCB? withRemoveContentTagList,
+    bool withRemoveContent = true,
   }) {
     if (!withOptionalConfiguration) {
       return sanitizeHtml(
         template,
         allowTag: withCustomTagList,
         allowAttribute: withCustomAttrList,
+        removeContentTag: withRemoveContentTagList,
+        removeContents: withRemoveContent,
       );
     }
 
@@ -64,6 +70,8 @@ void main() {
       addLinkRel: (href) => href == 'bad-link' ? ['ugc', 'nofollow'] : null,
       allowTag: withCustomTagList,
       allowAttribute: withCustomAttrList,
+      removeContentTag: withRemoveContentTagList,
+      removeContents: withRemoveContent,
     );
   }
 
@@ -73,6 +81,8 @@ void main() {
     bool withOptionalConfiguration = true,
     AllowTagCB? withCustomTagList,
     AllowAttributeCB? withCustomAttrList,
+    AllowTagCB? withRemoveContentTagList,
+    bool withRemoveContent = true,
   }) {
     test('"$template" does contain "$needle"', () {
       final sanitizedHtml = doSanitizeHtml(
@@ -80,6 +90,8 @@ void main() {
         withOptionalConfiguration: withOptionalConfiguration,
         withCustomTagList: withCustomTagList,
         withCustomAttrList: withCustomAttrList,
+        withRemoveContentTagList: withRemoveContentTagList,
+        withRemoveContent: withRemoveContent,
       );
       expect(sanitizedHtml, contains(needle));
     });
@@ -91,6 +103,8 @@ void main() {
     bool withOptionalConfiguration = true,
     AllowTagCB? withCustomTagList,
     AllowAttributeCB? withCustomAttrList,
+    AllowTagCB? withRemoveContentTagList,
+    bool withRemoveContent = true,
   }) {
     test('"$template" does not contain "$needle"', () {
       final sanitizedHtml = doSanitizeHtml(
@@ -98,6 +112,8 @@ void main() {
         withOptionalConfiguration: withOptionalConfiguration,
         withCustomTagList: withCustomTagList,
         withCustomAttrList: withCustomAttrList,
+        withRemoveContentTagList: withRemoveContentTagList,
+        withRemoveContent: withRemoveContent,
       );
       expect(sanitizedHtml, isNot(contains(needle)));
     });
@@ -204,7 +220,7 @@ void main() {
         withOptionalConfiguration: false);
   });
 
-  group('Custom Tag List', () {
+  group('Custom Tag List: ', () {
     testContains('<cstm>hello', '<cstm>hello',
         withCustomTagList: customTagList);
     testNotContains('<div>hello', 'hello', withCustomTagList: customTagList);
@@ -236,7 +252,7 @@ void main() {
         withCustomTagList: customTagList);
   });
 
-  group('Custom Attribute List', () {
+  group('Custom Attribute List: ', () {
     testNotContains('<span alt="foo">hello', 'alt',
         withCustomAttrList: customAttrList);
     testContains('<div alt="foo">hello', 'alt',
@@ -251,5 +267,73 @@ void main() {
         withCustomAttrList: customAttrList);
     testNotContains('<span data-key="value-allowed">hello', 'value-allowed',
         withCustomAttrList: customAttrList);
+  });
+
+  group('Remove tag but left content: ', () {
+    testNotContains('<font>hello', 'font', withRemoveContent: false);
+    testContains('<font>hello', 'hello', withRemoveContent: false);
+    // allowed default tags (parent/children)
+    testContains(
+        '<form>up<input type="submit"/><h1>hello<span>world</h1><some>down',
+        'up<h1>hello<span>world</span></h1>down',
+        withRemoveContent: false);
+    // allowed default tags (parent/siblings)
+    testContains('<font>up</font><h1>hello</h1><some>down</some>',
+        'up<h1>hello</h1>down',
+        withRemoveContent: false);
+
+    // unknown tags
+    testContains(
+        '<form>up<input type="submit"/><foo>hello<bar>world', 'uphelloworld',
+        withRemoveContent: false);
+
+    // some tags always remove content
+    testNotContains('<iframe>badBad', 'badBad', withRemoveContent: false);
+    testNotContains('<iframe>badBad<div>noNo', 'noNo',
+        withRemoveContent: false);
+
+    // custom tags with keep content
+    testContains('<cstm>foo<b>bar', 'foobar',
+        withRemoveContent: false, withCustomTagList: customTagList);
+    // if the node to remove has children, will generate with a wrapper
+    testContains('<span>foo<cstm>bar', '<div>foo<cstm>bar</cstm></div>',
+        withRemoveContent: false, withCustomTagList: customTagList);
+    // if the node to remove do not has children, generate a text node
+    testContains('<span>foo</span><cstm>bar', 'foo<cstm>bar',
+        withRemoveContent: false, withCustomTagList: customTagList);
+
+    // when use custom tags, will not use the default disalowed tags
+    testContains('<iframe>badBad', '<iframe>badBad',
+        withRemoveContent: false, withCustomTagList: customTagList);
+    testNotContains('<script>badBad', 'badBad',
+        withRemoveContent: false, withCustomTagList: customTagList);
+
+    testNotContains('<custom>hello', 'hello',
+        withRemoveContent: false,
+        withRemoveContentTagList: removeContentTagList);
+    testContains('<custom2>hello', 'hello',
+        withRemoveContent: false,
+        withRemoveContentTagList: removeContentTagList);
+
+    // when use custom list, default disallowed tag list is not used but the tag is removed
+    testContains('<iframe>hello', 'hello',
+        withRemoveContent: false,
+        withRemoveContentTagList: removeContentTagList);
+    testNotContains('<iframe>hello', 'iframe',
+        withRemoveContent: false,
+        withRemoveContentTagList: removeContentTagList);
+
+    testContains('<iframe>hello', '<iframe>hello',
+        withRemoveContent: false,
+        withCustomTagList: customTagList,
+        withRemoveContentTagList: removeContentTagList);
+    testNotContains('<custom>hello', 'hello',
+        withRemoveContent: false,
+        withCustomTagList: customTagList,
+        withRemoveContentTagList: removeContentTagList);
+    testContains('<some>hello', 'hello',
+        withRemoveContent: false,
+        withCustomTagList: customTagList,
+        withRemoveContentTagList: removeContentTagList);
   });
 }
